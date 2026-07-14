@@ -814,19 +814,6 @@ function detonateAt(center: THREE.Vector3, radius: number, power: number) {
 
   spawnExplosionParticles(center, power);
   spawnImpactMagicCircle(center, radius, power);
-
-  // カメラを着弾地点へ寄せる演出（Tween.js）
-  const from = { t: 0 };
-  const startTarget = controls.target.clone();
-  new TWEEN.Tween(from)
-    .to({ t: 1 }, 500)
-    .easing(TWEEN.Easing.Quadratic.Out)
-    .onUpdate(() => {
-      controls.target.lerpVectors(startTarget, center, from.t);
-    })
-    .yoyo(true)
-    .repeat(1)
-    .start();
 }
 
 // ------------------------------------------------------------
