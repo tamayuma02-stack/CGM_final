@@ -374,6 +374,10 @@ castCircleMesh.scale.setScalar(0.5);
 castCircleMesh.position.z = STAFF_LENGTH + 0.3;
 staffPivot.add(castCircleMesh);
 
+const castLight = new THREE.PointLight(0xa855ff, 0, 10);
+castLight.position.z = STAFF_LENGTH;
+staffPivot.add(castLight);
+
 // 着弾予測ライン（狙いの可視化）
 const aimArrow = new THREE.ArrowHelper(
   new THREE.Vector3(0, 0, 1),
@@ -432,67 +436,119 @@ gui.add(params, 'fire').name('魔法を放つ！');
 gui.add(params, 'reset').name('建造物をリセット');
 
 // ------------------------------------------------------------
-// 魔法弾（cannon-esの剛体として飛ばし、着弾で爆発させる）
+// 詠唱エフェクト：発射の瞬間、魔法陣が拡大して発光する
 // ------------------------------------------------------------
-interface SpellOrb {
-  mesh: THREE.Mesh;
+const BEAM_UP_AXIS = new THREE.Vector3(0, 1, 0);
+
+function playCastChargeEffect() {
+  const circleMat = castCircleMesh.material as THREE.MeshBasicMaterial;
+  const state = { scale: castCircleMesh.scale.x, opacity: circleMat.opacity, light: 0 };
+
+  const grow = new TWEEN.Tween(state)
+    .to({ scale: 2.6, opacity: 1, light: 8 }, 180)
+    .easing(TWEEN.Easing.Quadratic.Out);
+  const shrink = new TWEEN.Tween(state)
+    .to({ scale: 0.5, opacity: 0.85, light: 0 }, 320)
+    .easing(TWEEN.Easing.Quadratic.In);
+
+  const applyState = () => {
+    castCircleMesh.scale.setScalar(state.scale);
+    circleMat.opacity = state.opacity;
+    castLight.intensity = state.light;
+  };
+  grow.onUpdate(applyState);
+  shrink.onUpdate(applyState);
+  grow.chain(shrink);
+  grow.start();
+}
+
+// ------------------------------------------------------------
+// 魔法ビーム（cannon-esの剛体として飛ばし、着弾で爆発させる）
+// ------------------------------------------------------------
+interface SpellBeam {
+  group: THREE.Group;
   body: CANNON.Body;
   exploded: boolean;
   life: number;
 }
 
-const spellOrbs: SpellOrb[] = [];
-const orbGeo = new THREE.SphereGeometry(0.5, 16, 16);
-const orbMat = new THREE.MeshStandardMaterial({
-  color: 0x120018,
-  emissive: 0x7a1fd6,
-  emissiveIntensity: 1.5,
+const spellBeams: SpellBeam[] = [];
+const beamCoreGeo = new THREE.CylinderGeometry(0.08, 0.08, 2.4, 10);
+const beamGlowGeo = new THREE.CylinderGeometry(0.22, 0.22, 2.4, 10);
+const beamCoreMat = new THREE.MeshBasicMaterial({ color: 0xf3e6ff });
+const beamGlowMat = new THREE.MeshBasicMaterial({
+  color: 0x9b30ff,
+  transparent: true,
+  opacity: 0.55,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
 });
 
-function castSpell() {
-  const dir = getAimDirection();
-  const muzzle = CASTER_POS.clone().add(new THREE.Vector3(0, 1.2, 0)).add(dir.clone().multiplyScalar(STAFF_LENGTH));
-
-  const mesh = new THREE.Mesh(orbGeo, orbMat);
-  mesh.position.copy(muzzle);
-  mesh.castShadow = true;
-  scene.add(mesh);
-
-  const body = new CANNON.Body({ mass: 4, material: blockMaterial });
-  body.addShape(new CANNON.Sphere(0.5));
-  body.position.set(muzzle.x, muzzle.y, muzzle.z);
-  body.velocity.set(
-    dir.x * params.launchPower,
-    dir.y * params.launchPower,
-    dir.z * params.launchPower
-  );
-  world.addBody(body);
-
-  const orb: SpellOrb = { mesh, body, exploded: false, life: 6 };
-  spellOrbs.push(orb);
-
-  body.addEventListener('collide', () => {
-    if (orb.exploded) return;
-    orb.exploded = true;
-    detonateAt(
-      new THREE.Vector3(body.position.x, body.position.y, body.position.z),
-      params.radius,
-      params.blastPower
-    );
-  });
+function createBeamMesh(): THREE.Group {
+  const group = new THREE.Group();
+  const core = new THREE.Mesh(beamCoreGeo, beamCoreMat);
+  const glow = new THREE.Mesh(beamGlowGeo, beamGlowMat);
+  group.add(glow);
+  group.add(core);
+  return group;
 }
 
-function updateSpellOrbs(dt: number) {
-  for (let i = spellOrbs.length - 1; i >= 0; i--) {
-    const orb = spellOrbs[i];
-    orb.life -= dt;
-    orb.mesh.position.copy(orb.body.position as unknown as THREE.Vector3);
-    orb.mesh.quaternion.copy(orb.body.quaternion as unknown as THREE.Quaternion);
+function castSpell() {
+  playCastChargeEffect();
 
-    if (orb.exploded || orb.life <= 0) {
-      scene.remove(orb.mesh);
-      world.removeBody(orb.body);
-      spellOrbs.splice(i, 1);
+  // 詠唱モーション分（魔法陣の展開）を待ってから発射する
+  window.setTimeout(() => {
+    const dir = getAimDirection();
+    const muzzle = CASTER_POS.clone()
+      .add(new THREE.Vector3(0, 1.2, 0))
+      .add(dir.clone().multiplyScalar(STAFF_LENGTH));
+
+    const group = createBeamMesh();
+    group.position.copy(muzzle);
+    group.quaternion.setFromUnitVectors(BEAM_UP_AXIS, dir);
+    scene.add(group);
+
+    const body = new CANNON.Body({ mass: 4, material: blockMaterial });
+    body.addShape(new CANNON.Sphere(0.4));
+    body.position.set(muzzle.x, muzzle.y, muzzle.z);
+    body.velocity.set(
+      dir.x * params.launchPower,
+      dir.y * params.launchPower,
+      dir.z * params.launchPower
+    );
+    world.addBody(body);
+
+    const beam: SpellBeam = { group, body, exploded: false, life: 6 };
+    spellBeams.push(beam);
+
+    body.addEventListener('collide', () => {
+      if (beam.exploded) return;
+      beam.exploded = true;
+      detonateAt(
+        new THREE.Vector3(body.position.x, body.position.y, body.position.z),
+        params.radius,
+        params.blastPower
+      );
+    });
+  }, 220);
+}
+
+function updateSpellBeams(dt: number) {
+  for (let i = spellBeams.length - 1; i >= 0; i--) {
+    const beam = spellBeams[i];
+    beam.life -= dt;
+    beam.group.position.copy(beam.body.position as unknown as THREE.Vector3);
+
+    const velocity = beam.body.velocity;
+    if (velocity.length() > 0.01) {
+      const dir = new THREE.Vector3(velocity.x, velocity.y, velocity.z).normalize();
+      beam.group.quaternion.setFromUnitVectors(BEAM_UP_AXIS, dir);
+    }
+
+    if (beam.exploded || beam.life <= 0) {
+      scene.remove(beam.group);
+      world.removeBody(beam.body);
+      spellBeams.splice(i, 1);
     }
   }
 }
@@ -607,7 +663,7 @@ function animate() {
   }
 
   castCircleMesh.rotation.z += dt * 1.2;
-  updateSpellOrbs(dt);
+  updateSpellBeams(dt);
   updateExplosionParticles(dt);
   updateMagicCircles(dt);
   TWEEN.update();
