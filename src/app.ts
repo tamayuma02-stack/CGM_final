@@ -545,8 +545,13 @@ const params = {
   reset: () => buildStructure(),
 };
 
+// キャラクターの体の向き（カメラの見ている方向）＋GUIのyawオフセットを合算したワールド空間の左右角度
+function getTotalYaw(): number {
+  return casterGroup.rotation.y + THREE.MathUtils.degToRad(params.yaw);
+}
+
 function getAimDirection(): THREE.Vector3 {
-  const yawRad = THREE.MathUtils.degToRad(params.yaw);
+  const yawRad = getTotalYaw();
   const angleRad = THREE.MathUtils.degToRad(params.angle);
   return new THREE.Vector3(
     Math.sin(yawRad) * Math.cos(angleRad),
@@ -555,11 +560,11 @@ function getAimDirection(): THREE.Vector3 {
   );
 }
 
-// 落下の柱・魔法の雨用：左右の向き（yaw）だけで狙った先の地面座標を求める
+// 落下の柱・魔法の雨用：左右の向きだけで狙った先の地面座標を求める
 const AIM_TARGET_DISTANCE = 22;
 
 function getGroundTarget(): THREE.Vector3 {
-  const yawRad = THREE.MathUtils.degToRad(params.yaw);
+  const yawRad = getTotalYaw();
   return new THREE.Vector3(
     casterGroup.position.x + Math.sin(yawRad) * AIM_TARGET_DISTANCE,
     0,
@@ -567,15 +572,18 @@ function getGroundTarget(): THREE.Vector3 {
   );
 }
 
+function updateAimArrow() {
+  const dir = getAimDirection();
+  aimArrow.setDirection(dir);
+  aimArrow.setLength(6 + params.launchPower * 0.3, 0.8, 0.5);
+}
+
 function updateAim() {
   const yawRad = THREE.MathUtils.degToRad(params.yaw);
   const angleRad = THREE.MathUtils.degToRad(params.angle);
   staffPivot.rotation.y = yawRad;
   staffPivot.rotation.x = -angleRad;
-
-  const dir = getAimDirection();
-  aimArrow.setDirection(dir);
-  aimArrow.setLength(6 + params.launchPower * 0.3, 0.8, 0.5);
+  updateAimArrow();
 }
 updateAim();
 
@@ -986,6 +994,15 @@ function animate() {
 
   updateCasterMovement(dt);
   aimArrow.position.copy(casterGroup.position);
+
+  // キャラクターの正面を常にカメラの見ている方向（＝視点の後ろ側）に合わせる
+  const viewDir = new THREE.Vector3()
+    .subVectors(casterGroup.position, camera.position)
+    .setY(0);
+  if (viewDir.lengthSq() > 0.0001) {
+    casterGroup.rotation.y = Math.atan2(viewDir.x, viewDir.z);
+  }
+  updateAimArrow();
 
   // 三人称カメラ：注視点を常に魔法使いに固定し、マウスドラッグでの周回・ズームはOrbitControlsに任せる
   controls.target.set(
