@@ -727,6 +727,7 @@ function spawnProjectile(
   body.addShape(new CANNON.Sphere(colliderRadius));
   body.position.set(origin.x, origin.y, origin.z);
   body.velocity.set(velocity.x, velocity.y, velocity.z);
+  body.linearDamping = 0; // 弾道計算どおりに飛ばすため減衰なし
   world.addBody(body);
 
   const projectile: SpellProjectile = { group, body, exploded: false, life: 8, blastRadius, blastPower };
@@ -799,6 +800,9 @@ function spawnGroundTelegraphCircle(target: THREE.Vector3, targetScale: number, 
 function castBeamSpell() {
   playCastChargeEffect();
 
+  // クリックした瞬間の狙い先を確定させておく（詠唱中にマウスが動いてもズレないように）
+  const target = mouseGroundTarget.clone();
+
   // 詠唱モーション分（魔法陣の展開）を待ってから発射する
   window.setTimeout(() => {
     const dir = getAimDirection();
@@ -813,10 +817,26 @@ function castBeamSpell() {
     const group = createBeamMesh();
     group.scale.set(beamScale, 1 + (beamScale - 1) * 0.6, beamScale);
 
+    // クリック地点へ正確に着弾するよう、放物線の初速を逆算する
+    // （威力が大きいほど飛行時間が短くなり、より速く・直線的な弾道になる）
+    const GRAVITY = 9.82;
+    const displacement = target.clone().sub(muzzle);
+    const horizontalDist = Math.hypot(displacement.x, displacement.z);
+    const flightTime = THREE.MathUtils.clamp(
+      horizontalDist / (params.launchPower * 1.1),
+      0.35,
+      3.5
+    );
+    const velocity = new THREE.Vector3(
+      displacement.x / flightTime,
+      (displacement.y + 0.5 * GRAVITY * flightTime * flightTime) / flightTime,
+      displacement.z / flightTime
+    );
+
     spawnProjectile(
       group,
       muzzle,
-      dir.clone().multiplyScalar(params.launchPower),
+      velocity,
       0.4 * beamScale,
       params.radius,
       params.blastPower
