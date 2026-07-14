@@ -17,7 +17,7 @@ const camera = new THREE.PerspectiveCamera(
   0.1,
   200
 );
-camera.position.set(24, 20, 24);
+camera.position.set(6, 6, -30);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -201,11 +201,12 @@ function spawnExplosionParticles(center: THREE.Vector3) {
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
 
   const material = new THREE.PointsMaterial({
-    color: 0xffaa33,
+    color: 0x9933ff,
     size: 0.35,
     transparent: true,
     opacity: 1,
     depthWrite: false,
+    blending: THREE.AdditiveBlending,
   });
 
   const points = new THREE.Points(geometry, material);
@@ -241,42 +242,71 @@ function updateExplosionParticles(dt: number) {
 }
 
 // ------------------------------------------------------------
-// 大砲（遠距離から狙って発射する）
+// 魔法使い（ローブ＋杖の汎用キャラクター。遠距離から破壊魔法を放つ）
+// ※特定作品のキャラクターは模倣せず、汎用的な魔法使い像として実装
 // ------------------------------------------------------------
-const CANNON_POS = new THREE.Vector3(0, 1.3, -22);
-const BARREL_LENGTH = 3;
+const CASTER_POS = new THREE.Vector3(0, 1.3, -22);
+const STAFF_LENGTH = 3;
 
-const cannonGroup = new THREE.Group();
-cannonGroup.position.copy(CANNON_POS);
-scene.add(cannonGroup);
+const casterGroup = new THREE.Group();
+casterGroup.position.copy(CASTER_POS);
+scene.add(casterGroup);
 
-const cannonBaseMesh = new THREE.Mesh(
-  new THREE.CylinderGeometry(1, 1.2, 1, 20),
-  new THREE.MeshStandardMaterial({ color: 0x445566 })
+const robeMesh = new THREE.Mesh(
+  new THREE.ConeGeometry(0.9, 2.2, 16),
+  new THREE.MeshStandardMaterial({ color: 0x2a2440, roughness: 0.8 })
 );
-cannonBaseMesh.position.y = -0.6;
-cannonBaseMesh.castShadow = true;
-cannonGroup.add(cannonBaseMesh);
+robeMesh.position.y = 0.5;
+robeMesh.castShadow = true;
+casterGroup.add(robeMesh);
 
-const barrelPivot = new THREE.Group();
-barrelPivot.rotation.order = 'YXZ';
-cannonGroup.add(barrelPivot);
-
-const barrelMesh = new THREE.Mesh(
-  new THREE.CylinderGeometry(0.32, 0.4, BARREL_LENGTH, 16),
-  new THREE.MeshStandardMaterial({ color: 0x222831, metalness: 0.6, roughness: 0.4 })
+const headMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(0.4, 16, 16),
+  new THREE.MeshStandardMaterial({ color: 0xe8c9a0, roughness: 0.7 })
 );
-barrelMesh.rotation.x = Math.PI / 2; // 円柱の軸をZ方向に向ける
-barrelMesh.position.z = BARREL_LENGTH / 2;
-barrelMesh.castShadow = true;
-barrelPivot.add(barrelMesh);
+headMesh.position.y = 1.9;
+headMesh.castShadow = true;
+casterGroup.add(headMesh);
+
+const hatMesh = new THREE.Mesh(
+  new THREE.ConeGeometry(0.5, 0.9, 16),
+  new THREE.MeshStandardMaterial({ color: 0x1a1630, roughness: 0.8 })
+);
+hatMesh.position.y = 2.55;
+hatMesh.castShadow = true;
+casterGroup.add(hatMesh);
+
+const staffPivot = new THREE.Group();
+staffPivot.position.y = 1.2;
+staffPivot.rotation.order = 'YXZ';
+casterGroup.add(staffPivot);
+
+const staffMesh = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.06, 0.06, STAFF_LENGTH, 10),
+  new THREE.MeshStandardMaterial({ color: 0x4a3420, roughness: 0.6 })
+);
+staffMesh.rotation.x = Math.PI / 2; // 円柱の軸をZ方向に向ける
+staffMesh.position.z = STAFF_LENGTH / 2;
+staffMesh.castShadow = true;
+staffPivot.add(staffMesh);
+
+const staffOrbMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(0.22, 16, 16),
+  new THREE.MeshStandardMaterial({
+    color: 0x220033,
+    emissive: 0x8822ff,
+    emissiveIntensity: 1.2,
+  })
+);
+staffOrbMesh.position.z = STAFF_LENGTH;
+staffPivot.add(staffOrbMesh);
 
 // 着弾予測ライン（狙いの可視化）
 const aimArrow = new THREE.ArrowHelper(
   new THREE.Vector3(0, 0, 1),
-  CANNON_POS,
+  CASTER_POS,
   10,
-  0xffdd55
+  0x9933ff
 );
 scene.add(aimArrow);
 
@@ -289,7 +319,7 @@ const params = {
   launchPower: 30, // 発射速度
   radius: 12, // 爆風半径
   blastPower: 60, // 爆風の威力
-  fire: () => fireCannon(),
+  fire: () => castSpell(),
   reset: () => buildStructure(),
 };
 
@@ -306,8 +336,8 @@ function getAimDirection(): THREE.Vector3 {
 function updateAim() {
   const yawRad = THREE.MathUtils.degToRad(params.yaw);
   const angleRad = THREE.MathUtils.degToRad(params.angle);
-  barrelPivot.rotation.y = yawRad;
-  barrelPivot.rotation.x = -angleRad;
+  staffPivot.rotation.y = yawRad;
+  staffPivot.rotation.x = -angleRad;
 
   const dir = getAimDirection();
   aimArrow.setDirection(dir);
@@ -315,38 +345,42 @@ function updateAim() {
 }
 updateAim();
 
-const gui = new GUI({ title: '大砲コントロール' });
+const gui = new GUI({ title: '魔法コントロール' });
 const aimFolder = gui.addFolder('照準');
 aimFolder.add(params, 'angle', 10, 75, 1).name('仰角').onChange(updateAim);
 aimFolder.add(params, 'yaw', -35, 35, 1).name('左右').onChange(updateAim);
-aimFolder.add(params, 'launchPower', 15, 45, 1).name('発射速度').onChange(updateAim);
+aimFolder.add(params, 'launchPower', 15, 45, 1).name('威力（速度）').onChange(updateAim);
 
-const blastFolder = gui.addFolder('爆風');
-blastFolder.add(params, 'radius', 2, 25, 0.5).name('爆風半径');
+const blastFolder = gui.addFolder('着弾時の爆風');
+blastFolder.add(params, 'radius', 2, 25, 0.5).name('範囲半径');
 blastFolder.add(params, 'blastPower', 10, 150, 1).name('威力');
 
-gui.add(params, 'fire').name('発射！');
+gui.add(params, 'fire').name('魔法を放つ！');
 gui.add(params, 'reset').name('建造物をリセット');
 
 // ------------------------------------------------------------
-// 砲弾（cannon-esの剛体として飛ばし、着弾で爆発させる）
+// 魔法弾（cannon-esの剛体として飛ばし、着弾で爆発させる）
 // ------------------------------------------------------------
-interface Cannonball {
+interface SpellOrb {
   mesh: THREE.Mesh;
   body: CANNON.Body;
   exploded: boolean;
   life: number;
 }
 
-const cannonballs: Cannonball[] = [];
-const ballGeo = new THREE.SphereGeometry(0.5, 16, 16);
-const ballMat = new THREE.MeshStandardMaterial({ color: 0x333333, metalness: 0.7, roughness: 0.3 });
+const spellOrbs: SpellOrb[] = [];
+const orbGeo = new THREE.SphereGeometry(0.5, 16, 16);
+const orbMat = new THREE.MeshStandardMaterial({
+  color: 0x120018,
+  emissive: 0x7a1fd6,
+  emissiveIntensity: 1.5,
+});
 
-function fireCannon() {
+function castSpell() {
   const dir = getAimDirection();
-  const muzzle = CANNON_POS.clone().add(dir.clone().multiplyScalar(BARREL_LENGTH));
+  const muzzle = CASTER_POS.clone().add(new THREE.Vector3(0, 1.2, 0)).add(dir.clone().multiplyScalar(STAFF_LENGTH));
 
-  const mesh = new THREE.Mesh(ballGeo, ballMat);
+  const mesh = new THREE.Mesh(orbGeo, orbMat);
   mesh.position.copy(muzzle);
   mesh.castShadow = true;
   scene.add(mesh);
@@ -361,12 +395,12 @@ function fireCannon() {
   );
   world.addBody(body);
 
-  const ball: Cannonball = { mesh, body, exploded: false, life: 6 };
-  cannonballs.push(ball);
+  const orb: SpellOrb = { mesh, body, exploded: false, life: 6 };
+  spellOrbs.push(orb);
 
   body.addEventListener('collide', () => {
-    if (ball.exploded) return;
-    ball.exploded = true;
+    if (orb.exploded) return;
+    orb.exploded = true;
     detonateAt(
       new THREE.Vector3(body.position.x, body.position.y, body.position.z),
       params.radius,
@@ -375,17 +409,17 @@ function fireCannon() {
   });
 }
 
-function updateCannonballs(dt: number) {
-  for (let i = cannonballs.length - 1; i >= 0; i--) {
-    const ball = cannonballs[i];
-    ball.life -= dt;
-    ball.mesh.position.copy(ball.body.position as unknown as THREE.Vector3);
-    ball.mesh.quaternion.copy(ball.body.quaternion as unknown as THREE.Quaternion);
+function updateSpellOrbs(dt: number) {
+  for (let i = spellOrbs.length - 1; i >= 0; i--) {
+    const orb = spellOrbs[i];
+    orb.life -= dt;
+    orb.mesh.position.copy(orb.body.position as unknown as THREE.Vector3);
+    orb.mesh.quaternion.copy(orb.body.quaternion as unknown as THREE.Quaternion);
 
-    if (ball.exploded || ball.life <= 0) {
-      scene.remove(ball.mesh);
-      world.removeBody(ball.body);
-      cannonballs.splice(i, 1);
+    if (orb.exploded || orb.life <= 0) {
+      scene.remove(orb.mesh);
+      world.removeBody(orb.body);
+      spellOrbs.splice(i, 1);
     }
   }
 }
@@ -445,7 +479,7 @@ function animate() {
     b.mesh.quaternion.copy(b.body.quaternion as unknown as THREE.Quaternion);
   }
 
-  updateCannonballs(dt);
+  updateSpellOrbs(dt);
   updateExplosionParticles(dt);
   TWEEN.update();
   controls.update();
