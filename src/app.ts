@@ -507,22 +507,34 @@ function createBeamMesh(): THREE.Group {
   return group;
 }
 
+// 落下の柱専用：建物と同じくらい太くなれる、ずんぐりした円柱
+const pillarCoreGeo = new THREE.CylinderGeometry(0.5, 0.5, 3.2, 20);
+const pillarGlowGeo = new THREE.CylinderGeometry(0.85, 0.85, 3.2, 20);
+
+function createPillarMesh(): THREE.Group {
+  const group = new THREE.Group();
+  const core = new THREE.Mesh(pillarCoreGeo, beamCoreMat);
+  const glow = new THREE.Mesh(pillarGlowGeo, beamGlowMat);
+  group.add(glow);
+  group.add(core);
+  return group;
+}
+
 function spawnProjectile(
+  group: THREE.Group,
   origin: THREE.Vector3,
   velocity: THREE.Vector3,
-  visualScale: number,
+  colliderRadius: number,
   blastRadius: number,
   blastPower: number
 ) {
-  const group = createBeamMesh();
   group.position.copy(origin);
   const dir = velocity.clone().normalize();
   group.quaternion.setFromUnitVectors(BEAM_UP_AXIS, dir);
-  group.scale.set(visualScale, 1 + (visualScale - 1) * 0.6, visualScale);
   scene.add(group);
 
   const body = new CANNON.Body({ mass: 4, material: blockMaterial });
-  body.addShape(new CANNON.Sphere(0.4 * visualScale));
+  body.addShape(new CANNON.Sphere(colliderRadius));
   body.position.set(origin.x, origin.y, origin.z);
   body.velocity.set(velocity.x, velocity.y, velocity.z);
   world.addBody(body);
@@ -608,10 +620,14 @@ function castBeamSpell() {
     const powerRatio = THREE.MathUtils.clamp(params.blastPower / 150, 0, 1);
     const beamScale = THREE.MathUtils.lerp(0.7, 2.2, powerRatio);
 
+    const group = createBeamMesh();
+    group.scale.set(beamScale, 1 + (beamScale - 1) * 0.6, beamScale);
+
     spawnProjectile(
+      group,
       muzzle,
       dir.clone().multiplyScalar(params.launchPower),
-      beamScale,
+      0.4 * beamScale,
       params.radius,
       params.blastPower
     );
@@ -634,8 +650,17 @@ function castPillarSpell() {
   window.setTimeout(() => {
     const origin = new THREE.Vector3(target.x, FALL_HEIGHT, target.z);
     const velocity = new THREE.Vector3(0, -FALL_SPEED, 0);
-    // 柱は通常のビームより一回り太く・威力も上乗せする
-    spawnProjectile(origin, velocity, 2.6, params.radius * 1.3, params.blastPower * 1.4);
+
+    // 威力が最大のとき、建物（スラブ幅9＝半径4.5）と同じくらい太くなるようにする
+    const powerRatio = THREE.MathUtils.clamp(params.blastPower / 150, 0, 1);
+    const radiusScale = THREE.MathUtils.lerp(1, 5.3, powerRatio); // グロー半径0.85 × 5.3 ≒ 4.5
+    const heightScale = THREE.MathUtils.lerp(1, 1.6, powerRatio);
+
+    const group = createPillarMesh();
+    group.scale.set(radiusScale, heightScale, radiusScale);
+
+    // 柱は通常のビームより威力も上乗せする
+    spawnProjectile(group, origin, velocity, 0.5 * radiusScale, params.radius * 1.3, params.blastPower * 1.4);
   }, 650);
 }
 
@@ -659,7 +684,9 @@ function castRainSpell() {
         const origin = new THREE.Vector3(targetX, FALL_HEIGHT * 0.7, targetZ);
         const velocity = new THREE.Vector3(0, -FALL_SPEED * 1.2, 0);
         // 1発ずつは通常のビームより小さく・弱くして、複数回の着弾で建物を崩す
-        spawnProjectile(origin, velocity, 0.8, params.radius * 0.5, params.blastPower * 0.4);
+        const rainGroup = createBeamMesh();
+        rainGroup.scale.set(0.8, 0.8, 0.8);
+        spawnProjectile(rainGroup, origin, velocity, 0.32, params.radius * 0.5, params.blastPower * 0.4);
       }, 260);
     }, startDelay);
   }
