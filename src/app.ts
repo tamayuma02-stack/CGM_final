@@ -517,6 +517,18 @@ function getAimDirection(): THREE.Vector3 {
   );
 }
 
+// 落下の柱・魔法の雨用：左右の向き（yaw）だけで狙った先の地面座標を求める
+const AIM_TARGET_DISTANCE = 22;
+
+function getGroundTarget(): THREE.Vector3 {
+  const yawRad = THREE.MathUtils.degToRad(params.yaw);
+  return new THREE.Vector3(
+    CASTER_POS.x + Math.sin(yawRad) * AIM_TARGET_DISTANCE,
+    0,
+    CASTER_POS.z + Math.cos(yawRad) * AIM_TARGET_DISTANCE
+  );
+}
+
 function updateAim() {
   const yawRad = THREE.MathUtils.degToRad(params.yaw);
   const angleRad = THREE.MathUtils.degToRad(params.angle);
@@ -534,10 +546,10 @@ gui
   .add(params, 'spellType', { 直線ビーム: 'beam', 落下の柱: 'pillar', 魔法の雨: 'rain' })
   .name('魔法の種類');
 
-const aimFolder = gui.addFolder('照準（直線ビーム用）');
-aimFolder.add(params, 'angle', 10, 75, 1).name('仰角').onChange(updateAim);
-aimFolder.add(params, 'yaw', -35, 35, 1).name('左右').onChange(updateAim);
-aimFolder.add(params, 'launchPower', 15, 45, 1).name('威力（速度）').onChange(updateAim);
+const aimFolder = gui.addFolder('照準（左右は全種類共通）');
+aimFolder.add(params, 'angle', 10, 75, 1).name('仰角（直線ビーム用）').onChange(updateAim);
+aimFolder.add(params, 'yaw', -70, 70, 1).name('左右').onChange(updateAim);
+aimFolder.add(params, 'launchPower', 15, 45, 1).name('威力（速度・直線ビーム用）').onChange(updateAim);
 
 const blastFolder = gui.addFolder('着弾時の爆風');
 blastFolder.add(params, 'radius', 2, 25, 0.5).name('範囲半径');
@@ -743,7 +755,7 @@ const FALL_SPEED = 26;
 function castPillarSpell() {
   playCastChargeEffect();
 
-  const target = new THREE.Vector3(0, 0, 0);
+  const target = getGroundTarget();
   const telegraphScale = Math.max(params.radius * 0.18, 1);
   spawnGroundTelegraphCircle(target, telegraphScale, 650);
 
@@ -770,12 +782,13 @@ function castPillarSpell() {
 function castRainSpell() {
   playCastChargeEffect();
 
+  const rainCenter = getGroundTarget();
   const dropCount = 7;
   for (let i = 0; i < dropCount; i++) {
     const startDelay = i * 160;
     window.setTimeout(() => {
-      const targetX = (Math.random() * 2 - 1) * (HALF + 2);
-      const targetZ = (Math.random() * 2 - 1) * (HALF + 2);
+      const targetX = rainCenter.x + (Math.random() * 2 - 1) * (HALF + 2);
+      const targetZ = rainCenter.z + (Math.random() * 2 - 1) * (HALF + 2);
       const target = new THREE.Vector3(targetX, 0, targetZ);
 
       spawnGroundTelegraphCircle(target, Math.max(params.radius * 0.08, 0.5), 260);
