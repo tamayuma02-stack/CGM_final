@@ -416,6 +416,41 @@ const casterGroup = new THREE.Group();
 casterGroup.position.copy(CASTER_POS);
 scene.add(casterGroup);
 
+// ------------------------------------------------------------
+// 魔法使いの移動（WASD／矢印キー）
+// ------------------------------------------------------------
+const keysPressed = new Set<string>();
+window.addEventListener('keydown', (e) => keysPressed.add(e.key.toLowerCase()));
+window.addEventListener('keyup', (e) => keysPressed.delete(e.key.toLowerCase()));
+
+const MOVE_SPEED = 10;
+const MOVE_BOUND = 42;
+
+function updateCasterMovement(dt: number) {
+  let moveX = 0;
+  let moveZ = 0;
+  if (keysPressed.has('w') || keysPressed.has('arrowup')) moveZ += 1;
+  if (keysPressed.has('s') || keysPressed.has('arrowdown')) moveZ -= 1;
+  if (keysPressed.has('a') || keysPressed.has('arrowleft')) moveX -= 1;
+  if (keysPressed.has('d') || keysPressed.has('arrowright')) moveX += 1;
+
+  if (moveX === 0 && moveZ === 0) return;
+
+  const len = Math.hypot(moveX, moveZ);
+  moveX /= len;
+  moveZ /= len;
+  casterGroup.position.x = THREE.MathUtils.clamp(
+    casterGroup.position.x + moveX * MOVE_SPEED * dt,
+    -MOVE_BOUND,
+    MOVE_BOUND
+  );
+  casterGroup.position.z = THREE.MathUtils.clamp(
+    casterGroup.position.z + moveZ * MOVE_SPEED * dt,
+    -MOVE_BOUND,
+    MOVE_BOUND
+  );
+}
+
 const robeMesh = new THREE.Mesh(
   new THREE.ConeGeometry(0.9, 2.2, 16),
   new THREE.MeshStandardMaterial({ color: 0x2a2440, roughness: 0.8 })
@@ -484,10 +519,10 @@ const castLight = new THREE.PointLight(0xa855ff, 0, 10);
 castLight.position.z = STAFF_LENGTH;
 staffPivot.add(castLight);
 
-// 着弾予測ライン（狙いの可視化）
+// 着弾予測ライン（狙いの可視化）。魔法使いの現在位置に毎フレーム追従させる
 const aimArrow = new THREE.ArrowHelper(
   new THREE.Vector3(0, 0, 1),
-  CASTER_POS,
+  casterGroup.position,
   10,
   0x9933ff
 );
@@ -523,9 +558,9 @@ const AIM_TARGET_DISTANCE = 22;
 function getGroundTarget(): THREE.Vector3 {
   const yawRad = THREE.MathUtils.degToRad(params.yaw);
   return new THREE.Vector3(
-    CASTER_POS.x + Math.sin(yawRad) * AIM_TARGET_DISTANCE,
+    casterGroup.position.x + Math.sin(yawRad) * AIM_TARGET_DISTANCE,
     0,
-    CASTER_POS.z + Math.cos(yawRad) * AIM_TARGET_DISTANCE
+    casterGroup.position.z + Math.cos(yawRad) * AIM_TARGET_DISTANCE
   );
 }
 
@@ -724,7 +759,7 @@ function castBeamSpell() {
   // 詠唱モーション分（魔法陣の展開）を待ってから発射する
   window.setTimeout(() => {
     const dir = getAimDirection();
-    const muzzle = CASTER_POS.clone()
+    const muzzle = casterGroup.position.clone()
       .add(new THREE.Vector3(0, 1.2, 0))
       .add(dir.clone().multiplyScalar(STAFF_LENGTH));
 
@@ -933,6 +968,8 @@ function detonateAt(center: THREE.Vector3, radius: number, power: number) {
 // メインループ
 // ------------------------------------------------------------
 const clock = new THREE.Clock();
+let prevCasterX = casterGroup.position.x;
+let prevCasterZ = casterGroup.position.z;
 
 function animate() {
   requestAnimationFrame(animate);
@@ -943,6 +980,21 @@ function animate() {
   for (const b of blocks) {
     b.mesh.position.copy(b.body.position as unknown as THREE.Vector3);
     b.mesh.quaternion.copy(b.body.quaternion as unknown as THREE.Quaternion);
+  }
+
+  updateCasterMovement(dt);
+  aimArrow.position.copy(casterGroup.position);
+
+  // 魔法使いの移動量ぶん、カメラと注視点を追従させる（ユーザーの手動視点操作は維持）
+  const deltaX = casterGroup.position.x - prevCasterX;
+  const deltaZ = casterGroup.position.z - prevCasterZ;
+  if (deltaX !== 0 || deltaZ !== 0) {
+    camera.position.x += deltaX;
+    camera.position.z += deltaZ;
+    controls.target.x += deltaX;
+    controls.target.z += deltaZ;
+    prevCasterX = casterGroup.position.x;
+    prevCasterZ = casterGroup.position.z;
   }
 
   castCircleMesh.rotation.z += dt * 1.2;
