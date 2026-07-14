@@ -25,8 +25,11 @@ renderer.shadowMap.enabled = true;
 document.body.appendChild(renderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
-controls.target.set(0, 6, 0);
+controls.target.set(0, 2.8, -22);
 controls.enableDamping = true;
+controls.minDistance = 4;
+controls.maxDistance = 40;
+controls.maxPolarAngle = Math.PI * 0.49; // 地面より下にはいかない
 
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
 scene.add(ambientLight);
@@ -968,8 +971,7 @@ function detonateAt(center: THREE.Vector3, radius: number, power: number) {
 // メインループ
 // ------------------------------------------------------------
 const clock = new THREE.Clock();
-let prevCasterX = casterGroup.position.x;
-let prevCasterZ = casterGroup.position.z;
+const CAMERA_LOOK_HEIGHT = 1.5; // 頭の高さあたりを注視点にする
 
 function animate() {
   requestAnimationFrame(animate);
@@ -985,17 +987,12 @@ function animate() {
   updateCasterMovement(dt);
   aimArrow.position.copy(casterGroup.position);
 
-  // 魔法使いの移動量ぶん、カメラと注視点を追従させる（ユーザーの手動視点操作は維持）
-  const deltaX = casterGroup.position.x - prevCasterX;
-  const deltaZ = casterGroup.position.z - prevCasterZ;
-  if (deltaX !== 0 || deltaZ !== 0) {
-    camera.position.x += deltaX;
-    camera.position.z += deltaZ;
-    controls.target.x += deltaX;
-    controls.target.z += deltaZ;
-    prevCasterX = casterGroup.position.x;
-    prevCasterZ = casterGroup.position.z;
-  }
+  // 三人称カメラ：注視点を常に魔法使いに固定し、マウスドラッグでの周回・ズームはOrbitControlsに任せる
+  controls.target.set(
+    casterGroup.position.x,
+    casterGroup.position.y + CAMERA_LOOK_HEIGHT,
+    casterGroup.position.z
+  );
 
   castCircleMesh.rotation.z += dt * 1.2;
   updateSpellProjectiles(dt);
