@@ -790,6 +790,13 @@ function spawnGroundTelegraphCircle(target: THREE.Vector3, targetScale: number, 
 // ------------------------------------------------------------
 // 魔法1：直線ビーム（杖から狙った方向へ発射）
 // ------------------------------------------------------------
+// 範囲半径・威力の両方を反映した「魔法本体の大きさ」割合（0〜1）。全魔法共通で使う
+function getSpellSizeRatio(): number {
+  const radiusRatio = THREE.MathUtils.clamp((params.radius - 2) / (25 - 2), 0, 1);
+  const powerRatio = THREE.MathUtils.clamp((params.blastPower - 10) / (150 - 10), 0, 1);
+  return THREE.MathUtils.clamp((radiusRatio + powerRatio) / 2, 0, 1);
+}
+
 function castBeamSpell() {
   playCastChargeEffect();
 
@@ -803,9 +810,8 @@ function castBeamSpell() {
       .add(new THREE.Vector3(0, 1.2, 0))
       .add(dir.clone().multiplyScalar(STAFF_LENGTH));
 
-    // 威力が大きいほど魔法弾（ビーム）自体も大きくする
-    const powerRatio = THREE.MathUtils.clamp(params.blastPower / 150, 0, 1);
-    const beamScale = THREE.MathUtils.lerp(0.7, 2.2, powerRatio);
+    // 範囲半径・威力が大きいほど魔法弾（ビーム）自体も大きくする
+    const beamScale = THREE.MathUtils.lerp(0.7, 2.2, getSpellSizeRatio());
 
     const group = createBeamMesh();
     group.scale.set(beamScale, 1 + (beamScale - 1) * 0.6, beamScale);
@@ -854,10 +860,10 @@ function castPillarSpell() {
     const origin = new THREE.Vector3(target.x, FALL_HEIGHT, target.z);
     const velocity = new THREE.Vector3(0, -FALL_SPEED, 0);
 
-    // 威力が最大のとき、建物（スラブ幅9＝半径4.5）と同じくらい太くなるようにする
-    const powerRatio = THREE.MathUtils.clamp(params.blastPower / 150, 0, 1);
-    const radiusScale = THREE.MathUtils.lerp(1, 5.3, powerRatio); // グロー半径0.85 × 5.3 ≒ 4.5
-    const heightScale = THREE.MathUtils.lerp(1, 1.8, powerRatio);
+    // 範囲半径・威力が最大のとき、建物（スラブ幅9＝半径4.5）と同じくらい太くなるようにする
+    const sizeRatio = getSpellSizeRatio();
+    const radiusScale = THREE.MathUtils.lerp(1, 5.3, sizeRatio); // グロー半径0.85 × 5.3 ≒ 4.5
+    const heightScale = THREE.MathUtils.lerp(1, 1.8, sizeRatio);
 
     const group = createPillarMesh();
     group.scale.set(radiusScale, heightScale, radiusScale);
@@ -888,9 +894,11 @@ function castRainSpell() {
         const origin = new THREE.Vector3(targetX, FALL_HEIGHT * 0.7, targetZ);
         const velocity = new THREE.Vector3(0, -FALL_SPEED * 1.2, 0);
         // 1発ずつは通常のビームより小さく・弱くして、複数回の着弾で建物を崩す
+        // （範囲半径・威力が大きいほど雨粒自体も太くなる）
+        const rainScale = THREE.MathUtils.lerp(0.6, 1.6, getSpellSizeRatio());
         const rainGroup = createBeamMesh();
-        rainGroup.scale.set(0.8, 0.8, 0.8);
-        spawnProjectile(rainGroup, origin, velocity, 0.32, params.radius * 0.5, params.blastPower * 0.4);
+        rainGroup.scale.set(rainScale, rainScale, rainScale);
+        spawnProjectile(rainGroup, origin, velocity, 0.32 * rainScale, params.radius * 0.5, params.blastPower * 0.4);
       }, 260);
     }, startDelay);
   }
