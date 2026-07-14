@@ -522,15 +522,6 @@ const castLight = new THREE.PointLight(0xa855ff, 0, 10);
 castLight.position.z = STAFF_LENGTH;
 staffPivot.add(castLight);
 
-// 着弾予測ライン（狙いの可視化）。魔法使いの現在位置に毎フレーム追従させる
-const aimArrow = new THREE.ArrowHelper(
-  new THREE.Vector3(0, 0, 1),
-  casterGroup.position,
-  10,
-  0x9933ff
-);
-scene.add(aimArrow);
-
 // ------------------------------------------------------------
 // マウスで狙う：カーソルの左右位置で向き(yaw)、上下位置で仰角(angle)を操作する
 // ------------------------------------------------------------
@@ -620,10 +611,6 @@ function updateAim() {
   const angleRad = THREE.MathUtils.degToRad(params.angle);
   staffPivot.rotation.y = yawRad;
   staffPivot.rotation.x = -angleRad;
-
-  const dir = getAimDirection();
-  aimArrow.setDirection(dir);
-  aimArrow.setLength(6 + params.launchPower * 0.3, 0.8, 0.5);
 }
 updateAim();
 
@@ -1051,7 +1038,6 @@ function animate() {
   }
 
   updateCasterMovement(dt);
-  aimArrow.position.copy(casterGroup.position);
 
   // 三人称カメラ：注視点を常に魔法使いに固定し、マウスドラッグでの周回・ズームはOrbitControlsに任せる
   controls.target.set(
