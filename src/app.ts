@@ -94,7 +94,6 @@ interface Block {
 const blocks: Block[] = [];
 
 const pillarGeo = new THREE.BoxGeometry(1, 2, 1);
-const slabGeo = new THREE.BoxGeometry(9, 0.6, 9);
 const stoneMat = new THREE.MeshStandardMaterial({ color: 0xcfc3a5, roughness: 0.9 });
 const slabMat = new THREE.MeshStandardMaterial({ color: 0xa89f86, roughness: 0.9 });
 
@@ -124,6 +123,41 @@ const FLOORS = 6;
 const FLOOR_HEIGHT = 2.6;
 const HALF = 4; // 柱の配置半径（正方形の半分）
 
+function buildTowerAt(centerX: number, centerZ: number, floors: number, half: number) {
+  const slabSize = half * 2 + 1;
+  const towerSlabGeo = new THREE.BoxGeometry(slabSize, 0.6, slabSize);
+
+  for (let floor = 0; floor < floors; floor++) {
+    const baseY = floor * FLOOR_HEIGHT;
+
+    // 4隅の柱
+    const corners = [
+      [half, half],
+      [half, -half],
+      [-half, half],
+      [-half, -half],
+    ];
+    for (const [x, z] of corners) {
+      addBlock(
+        pillarGeo,
+        stoneMat,
+        new THREE.Vector3(1, 2, 1),
+        new THREE.Vector3(centerX + x, baseY + 1, centerZ + z),
+        floor === 0 ? 0 : 6 // 最下段は固定（土台）
+      );
+    }
+
+    // 床スラブ（最上階の上にも1枚載せて屋根にする）
+    addBlock(
+      towerSlabGeo,
+      slabMat,
+      new THREE.Vector3(slabSize, 0.6, slabSize),
+      new THREE.Vector3(centerX, baseY + 2 + 0.3, centerZ),
+      10
+    );
+  }
+}
+
 function buildStructure() {
   // 既存ブロックの破棄
   for (const b of blocks) {
@@ -132,38 +166,104 @@ function buildStructure() {
   }
   blocks.length = 0;
 
-  for (let floor = 0; floor < FLOORS; floor++) {
-    const baseY = floor * FLOOR_HEIGHT;
-
-    // 4隅の柱
-    const corners = [
-      [HALF, HALF],
-      [HALF, -HALF],
-      [-HALF, HALF],
-      [-HALF, -HALF],
-    ];
-    for (const [x, z] of corners) {
-      addBlock(
-        pillarGeo,
-        stoneMat,
-        new THREE.Vector3(1, 2, 1),
-        new THREE.Vector3(x, baseY + 1, z),
-        floor === 0 ? 0 : 6 // 最下段は固定（土台）
-      );
-    }
-
-    // 床スラブ（最上階の上にも1枚載せて屋根にする）
-    addBlock(
-      slabGeo,
-      slabMat,
-      new THREE.Vector3(9, 0.6, 9),
-      new THREE.Vector3(0, baseY + 2 + 0.3, 0),
-      10
-    );
-  }
+  // メインの塔
+  buildTowerAt(0, 0, FLOORS, HALF);
+  // 周囲の小さな建物（すべて同じ仕組みで物理破壊できる）
+  buildTowerAt(15, 5, 4, 2.5);
+  buildTowerAt(-16, -6, 3, 2);
+  buildTowerAt(-13, 10, 3, 2.2);
 }
 
 buildStructure();
+
+// ------------------------------------------------------------
+// 自然物（木・岩）：装飾のみで物理判定は持たない
+// ------------------------------------------------------------
+const trunkGeo = new THREE.CylinderGeometry(0.15, 0.22, 1.6, 6);
+const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5b3a24, roughness: 0.9 });
+const foliageGeo = new THREE.ConeGeometry(1, 2.2, 8);
+const foliageMat = new THREE.MeshStandardMaterial({ color: 0x2f6b3a, roughness: 0.85 });
+const rockGeo = new THREE.DodecahedronGeometry(0.5, 0);
+const rockMat = new THREE.MeshStandardMaterial({ color: 0x777a72, roughness: 0.95 });
+
+function createTree(x: number, z: number, scale: number) {
+  const group = new THREE.Group();
+
+  const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+  trunk.position.y = 0.8;
+  trunk.castShadow = true;
+  group.add(trunk);
+
+  const foliage = new THREE.Mesh(foliageGeo, foliageMat);
+  foliage.position.y = 2.1;
+  foliage.castShadow = true;
+  group.add(foliage);
+
+  const foliageTop = new THREE.Mesh(foliageGeo, foliageMat);
+  foliageTop.position.y = 2.9;
+  foliageTop.scale.setScalar(0.7);
+  foliageTop.castShadow = true;
+  group.add(foliageTop);
+
+  group.position.set(x, 0, z);
+  group.scale.setScalar(scale);
+  scene.add(group);
+}
+
+function createRock(x: number, z: number, scale: number) {
+  const rock = new THREE.Mesh(rockGeo, rockMat);
+  rock.position.set(x, 0.3 * scale, z);
+  rock.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, 0);
+  rock.scale.setScalar(scale);
+  rock.castShadow = true;
+  rock.receiveShadow = true;
+  scene.add(rock);
+}
+
+// 建物・大砲の位置には自然物を置かないための除外エリア
+const natureExclusionZones = [
+  { x: 0, z: 0, radius: 9 },
+  { x: 15, z: 5, radius: 6 },
+  { x: -16, z: -6, radius: 5 },
+  { x: -13, z: 10, radius: 5 },
+  { x: 0, z: -22, radius: 6 },
+];
+
+function isInsideExclusionZone(x: number, z: number): boolean {
+  return natureExclusionZones.some((zone) => {
+    const dx = x - zone.x;
+    const dz = z - zone.z;
+    return Math.sqrt(dx * dx + dz * dz) < zone.radius;
+  });
+}
+
+function scatterNature() {
+  const treeCount = 45;
+  let placed = 0;
+  let attempts = 0;
+  while (placed < treeCount && attempts < treeCount * 10) {
+    attempts++;
+    const x = (Math.random() * 2 - 1) * 45;
+    const z = (Math.random() * 2 - 1) * 45;
+    if (isInsideExclusionZone(x, z)) continue;
+    createTree(x, z, 0.8 + Math.random() * 0.6);
+    placed++;
+  }
+
+  const rockCount = 20;
+  placed = 0;
+  attempts = 0;
+  while (placed < rockCount && attempts < rockCount * 10) {
+    attempts++;
+    const x = (Math.random() * 2 - 1) * 45;
+    const z = (Math.random() * 2 - 1) * 45;
+    if (isInsideExclusionZone(x, z)) continue;
+    createRock(x, z, 0.6 + Math.random() * 0.8);
+    placed++;
+  }
+}
+
+scatterNature();
 
 // ------------------------------------------------------------
 // 爆発演出用パーティクル
