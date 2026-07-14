@@ -670,8 +670,8 @@ interface SpellProjectile {
 }
 
 const spellProjectiles: SpellProjectile[] = [];
-const beamCoreGeo = new THREE.CylinderGeometry(0.08, 0.08, 2.4, 10);
-const beamGlowGeo = new THREE.CylinderGeometry(0.22, 0.22, 2.4, 10);
+const beamCoreGeo = new THREE.CylinderGeometry(0.14, 0.14, 2.4, 10);
+const beamGlowGeo = new THREE.CylinderGeometry(0.38, 0.38, 2.4, 10);
 const beamCoreMat = new THREE.MeshBasicMaterial({ color: 0xf3e6ff });
 const beamGlowMat = new THREE.MeshBasicMaterial({
   color: 0x9b30ff,
@@ -810,11 +810,11 @@ function castBeamSpell() {
       .add(new THREE.Vector3(0, 1.2, 0))
       .add(dir.clone().multiplyScalar(STAFF_LENGTH));
 
-    // 範囲半径・威力が大きいほど魔法弾（ビーム）自体も大きくする
-    const beamScale = THREE.MathUtils.lerp(0.7, 2.2, getSpellSizeRatio());
+    // 範囲半径・威力が大きいほど魔法弾（ビーム）自体もはっきり太く長くする
+    const beamScale = THREE.MathUtils.lerp(0.8, 3.4, getSpellSizeRatio());
 
     const group = createBeamMesh();
-    group.scale.set(beamScale, 1 + (beamScale - 1) * 0.6, beamScale);
+    group.scale.set(beamScale, beamScale, beamScale);
 
     // クリック地点へ正確に着弾するよう、放物線の初速を逆算する
     // （威力が大きいほど飛行時間が短くなり、より速く・直線的な弾道になる）
@@ -880,12 +880,15 @@ function castRainSpell() {
   playCastChargeEffect();
 
   const rainCenter = getGroundTarget();
-  const dropCount = 7;
+  // 範囲半径・威力が大きいほど、降り注ぐ範囲を広く・本数を多くする
+  const sizeRatio = getSpellSizeRatio();
+  const spreadRadius = HALF + 6 + params.radius;
+  const dropCount = Math.round(THREE.MathUtils.lerp(12, 24, sizeRatio));
   for (let i = 0; i < dropCount; i++) {
-    const startDelay = i * 160;
+    const startDelay = i * 100;
     window.setTimeout(() => {
-      const targetX = rainCenter.x + (Math.random() * 2 - 1) * (HALF + 2);
-      const targetZ = rainCenter.z + (Math.random() * 2 - 1) * (HALF + 2);
+      const targetX = rainCenter.x + (Math.random() * 2 - 1) * spreadRadius;
+      const targetZ = rainCenter.z + (Math.random() * 2 - 1) * spreadRadius;
       const target = new THREE.Vector3(targetX, 0, targetZ);
 
       spawnGroundTelegraphCircle(target, Math.max(params.radius * 0.08, 0.5), 260);
