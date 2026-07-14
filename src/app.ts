@@ -509,13 +509,18 @@ function castSpell() {
       .add(new THREE.Vector3(0, 1.2, 0))
       .add(dir.clone().multiplyScalar(STAFF_LENGTH));
 
+    // 威力が大きいほど魔法弾（ビーム）自体も大きくする
+    const powerRatio = THREE.MathUtils.clamp(params.blastPower / 150, 0, 1);
+    const beamScale = THREE.MathUtils.lerp(0.7, 2.2, powerRatio);
+
     const group = createBeamMesh();
     group.position.copy(muzzle);
     group.quaternion.setFromUnitVectors(BEAM_UP_AXIS, dir);
+    group.scale.set(beamScale, 1 + (beamScale - 1) * 0.6, beamScale);
     scene.add(group);
 
     const body = new CANNON.Body({ mass: 4, material: blockMaterial });
-    body.addShape(new CANNON.Sphere(0.4));
+    body.addShape(new CANNON.Sphere(0.4 * beamScale));
     body.position.set(muzzle.x, muzzle.y, muzzle.z);
     body.velocity.set(
       dir.x * params.launchPower,
