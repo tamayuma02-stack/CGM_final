@@ -810,11 +810,13 @@ function castBeamSpell() {
       .add(new THREE.Vector3(0, 1.2, 0))
       .add(dir.clone().multiplyScalar(STAFF_LENGTH));
 
-    // 範囲半径・威力が大きいほど魔法弾（ビーム）自体もはっきり太く長くする
-    const beamScale = THREE.MathUtils.lerp(0.8, 3.4, getSpellSizeRatio());
+    // 範囲半径・威力が大きいほど魔法弾（ビーム）自体を極端に太くする（長さは控えめに伸ばす）
+    const sizeRatio = getSpellSizeRatio();
+    const beamRadialScale = THREE.MathUtils.lerp(0.9, 8, sizeRatio);
+    const beamLengthScale = THREE.MathUtils.lerp(0.9, 2.2, sizeRatio);
 
     const group = createBeamMesh();
-    group.scale.set(beamScale, beamScale, beamScale);
+    group.scale.set(beamRadialScale, beamLengthScale, beamRadialScale);
 
     // クリック地点へ正確に着弾するよう、放物線の初速を逆算する
     // （威力が大きいほど飛行時間が短くなり、より速く・直線的な弾道になる）
@@ -836,7 +838,7 @@ function castBeamSpell() {
       group,
       muzzle,
       velocity,
-      0.4 * beamScale,
+      0.4 * beamRadialScale,
       params.radius,
       params.blastPower
     );
