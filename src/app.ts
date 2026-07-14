@@ -536,6 +536,9 @@ scene.add(aimArrow);
 // ------------------------------------------------------------
 const raycaster = new THREE.Raycaster();
 const mouseNDC = new THREE.Vector2();
+// クリックした実際の3D地点（建物の壁面などy>0もありうる）：直線ビームの正確な着弾先に使う
+const mouseHitPoint = new THREE.Vector3(0, 0, 0);
+// 上のXZ座標を地面（y=0）に投影したもの：落下の柱・魔法の雨の狙い先に使う
 const mouseGroundTarget = new THREE.Vector3(0, 0, 0);
 
 function updateAimFromMouse(clientX: number, clientY: number) {
@@ -547,9 +550,12 @@ function updateAimFromMouse(clientX: number, clientY: number) {
   params.angle = THREE.MathUtils.clamp(THREE.MathUtils.lerp(10, 75, verticalRatio), 10, 75);
 
   raycaster.setFromCamera(mouseNDC, camera);
-  const hit = raycaster.intersectObject(groundMesh)[0];
+  // 地面だけでなく建造物（ブロック）も判定対象にすることで、建物の側面・上層階も正しく狙える
+  const targets = [groundMesh, ...blocks.map((b) => b.mesh)];
+  const hit = raycaster.intersectObjects(targets, false)[0];
   if (hit) {
-    mouseGroundTarget.copy(hit.point);
+    mouseHitPoint.copy(hit.point);
+    mouseGroundTarget.set(hit.point.x, 0, hit.point.z);
 
     const dx = hit.point.x - casterGroup.position.x;
     const dz = hit.point.z - casterGroup.position.z;
@@ -801,7 +807,7 @@ function castBeamSpell() {
   playCastChargeEffect();
 
   // クリックした瞬間の狙い先を確定させておく（詠唱中にマウスが動いてもズレないように）
-  const target = mouseGroundTarget.clone();
+  const target = mouseHitPoint.clone();
 
   // 詠唱モーション分（魔法陣の展開）を待ってから発射する
   window.setTimeout(() => {
