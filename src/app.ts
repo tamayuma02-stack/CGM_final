@@ -532,7 +532,7 @@ const aimArrow = new THREE.ArrowHelper(
 scene.add(aimArrow);
 
 // ------------------------------------------------------------
-// マウスで狙う：カーソルが指している地面の座標へ左右(yaw)を自動で向ける
+// マウスで狙う：カーソルの左右位置で向き(yaw)、上下位置で仰角(angle)を操作する
 // ------------------------------------------------------------
 const raycaster = new THREE.Raycaster();
 const mouseNDC = new THREE.Vector2();
@@ -542,17 +542,23 @@ function updateAimFromMouse(clientX: number, clientY: number) {
   mouseNDC.x = (clientX / window.innerWidth) * 2 - 1;
   mouseNDC.y = -(clientY / window.innerHeight) * 2 + 1;
 
+  // 画面の縦位置：上ほど仰角が大きく、下ほど小さくなるようにマッピングする
+  const verticalRatio = 1 - clientY / window.innerHeight; // 下端0 〜 上端1
+  params.angle = THREE.MathUtils.clamp(THREE.MathUtils.lerp(10, 75, verticalRatio), 10, 75);
+
   raycaster.setFromCamera(mouseNDC, camera);
   const hit = raycaster.intersectObject(groundMesh)[0];
-  if (!hit) return;
+  if (hit) {
+    mouseGroundTarget.copy(hit.point);
 
-  mouseGroundTarget.copy(hit.point);
+    const dx = hit.point.x - casterGroup.position.x;
+    const dz = hit.point.z - casterGroup.position.z;
+    if (Math.hypot(dx, dz) >= 0.5) {
+      // 真下付近は向きが不定になるので無視
+      params.yaw = THREE.MathUtils.radToDeg(Math.atan2(dx, dz));
+    }
+  }
 
-  const dx = hit.point.x - casterGroup.position.x;
-  const dz = hit.point.z - casterGroup.position.z;
-  if (Math.hypot(dx, dz) < 0.5) return; // 真下付近は向きが不定になるので無視
-
-  params.yaw = THREE.MathUtils.radToDeg(Math.atan2(dx, dz));
   updateAim();
 }
 
@@ -620,8 +626,7 @@ gui
   .add(params, 'spellType', { 直線ビーム: 'beam', 落下の柱: 'pillar', 魔法の雨: 'rain' })
   .name('魔法の種類');
 
-const aimFolder = gui.addFolder('照準（左右はマウスで自動）');
-aimFolder.add(params, 'angle', 10, 75, 1).name('仰角（直線ビーム用）').onChange(updateAim);
+const aimFolder = gui.addFolder('照準（上下左右はマウスで自動）');
 aimFolder.add(params, 'launchPower', 15, 45, 1).name('威力（速度・直線ビーム用）').onChange(updateAim);
 
 const blastFolder = gui.addFolder('着弾時の爆風');
