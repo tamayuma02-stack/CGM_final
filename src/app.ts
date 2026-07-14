@@ -507,9 +507,9 @@ function createBeamMesh(): THREE.Group {
   return group;
 }
 
-// 落下の柱専用：建物と同じくらい太くなれる、ずんぐりした円柱
-const pillarCoreGeo = new THREE.CylinderGeometry(0.5, 0.5, 3.2, 20);
-const pillarGlowGeo = new THREE.CylinderGeometry(0.85, 0.85, 3.2, 20);
+// 落下の柱専用：建物と同じくらい太く、かつ高さのある円柱
+const pillarCoreGeo = new THREE.CylinderGeometry(0.5, 0.5, 12, 20);
+const pillarGlowGeo = new THREE.CylinderGeometry(0.85, 0.85, 12, 20);
 
 function createPillarMesh(): THREE.Group {
   const group = new THREE.Group();
@@ -654,7 +654,7 @@ function castPillarSpell() {
     // 威力が最大のとき、建物（スラブ幅9＝半径4.5）と同じくらい太くなるようにする
     const powerRatio = THREE.MathUtils.clamp(params.blastPower / 150, 0, 1);
     const radiusScale = THREE.MathUtils.lerp(1, 5.3, powerRatio); // グロー半径0.85 × 5.3 ≒ 4.5
-    const heightScale = THREE.MathUtils.lerp(1, 1.6, powerRatio);
+    const heightScale = THREE.MathUtils.lerp(1, 1.8, powerRatio);
 
     const group = createPillarMesh();
     group.scale.set(radiusScale, heightScale, radiusScale);
