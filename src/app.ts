@@ -397,12 +397,13 @@ scene.add(aimArrow);
 // GUI（照準・威力・爆風の指定）
 // ------------------------------------------------------------
 const params = {
+  spellType: 'beam' as 'beam' | 'pillar' | 'rain',
   angle: 35, // 仰角（度）
   yaw: 0, // 左右の向き（度）
   launchPower: 30, // 発射速度
   radius: 12, // 爆風半径
   blastPower: 60, // 爆風の威力
-  fire: () => castSpell(),
+  fire: () => fireCurrentSpell(),
   reset: () => buildStructure(),
 };
 
@@ -429,7 +430,11 @@ function updateAim() {
 updateAim();
 
 const gui = new GUI({ title: '魔法コントロール' });
-const aimFolder = gui.addFolder('照準');
+gui
+  .add(params, 'spellType', { 直線ビーム: 'beam', 落下の柱: 'pillar', 魔法の雨: 'rain' })
+  .name('魔法の種類');
+
+const aimFolder = gui.addFolder('照準（直線ビーム用）');
 aimFolder.add(params, 'angle', 10, 75, 1).name('仰角').onChange(updateAim);
 aimFolder.add(params, 'yaw', -35, 35, 1).name('左右').onChange(updateAim);
 aimFolder.add(params, 'launchPower', 15, 45, 1).name('威力（速度）').onChange(updateAim);
@@ -469,16 +474,19 @@ function playCastChargeEffect() {
 }
 
 // ------------------------------------------------------------
-// 魔法ビーム（cannon-esの剛体として飛ばし、着弾で爆発させる）
+// 魔法弾（cannon-esの剛体として飛ばし、着弾で爆発させる）
+// 直線ビーム・落下の柱・雨の3種類はすべてこの共通の弾を使う
 // ------------------------------------------------------------
-interface SpellBeam {
+interface SpellProjectile {
   group: THREE.Group;
   body: CANNON.Body;
   exploded: boolean;
   life: number;
+  blastRadius: number;
+  blastPower: number;
 }
 
-const spellBeams: SpellBeam[] = [];
+const spellProjectiles: SpellProjectile[] = [];
 const beamCoreGeo = new THREE.CylinderGeometry(0.08, 0.08, 2.4, 10);
 const beamGlowGeo = new THREE.CylinderGeometry(0.22, 0.22, 2.4, 10);
 const beamCoreMat = new THREE.MeshBasicMaterial({ color: 0xf3e6ff });
@@ -499,7 +507,94 @@ function createBeamMesh(): THREE.Group {
   return group;
 }
 
-function castSpell() {
+function spawnProjectile(
+  origin: THREE.Vector3,
+  velocity: THREE.Vector3,
+  visualScale: number,
+  blastRadius: number,
+  blastPower: number
+) {
+  const group = createBeamMesh();
+  group.position.copy(origin);
+  const dir = velocity.clone().normalize();
+  group.quaternion.setFromUnitVectors(BEAM_UP_AXIS, dir);
+  group.scale.set(visualScale, 1 + (visualScale - 1) * 0.6, visualScale);
+  scene.add(group);
+
+  const body = new CANNON.Body({ mass: 4, material: blockMaterial });
+  body.addShape(new CANNON.Sphere(0.4 * visualScale));
+  body.position.set(origin.x, origin.y, origin.z);
+  body.velocity.set(velocity.x, velocity.y, velocity.z);
+  world.addBody(body);
+
+  const projectile: SpellProjectile = { group, body, exploded: false, life: 8, blastRadius, blastPower };
+  spellProjectiles.push(projectile);
+
+  body.addEventListener('collide', () => {
+    if (projectile.exploded) return;
+    projectile.exploded = true;
+    detonateAt(
+      new THREE.Vector3(body.position.x, body.position.y, body.position.z),
+      projectile.blastRadius,
+      projectile.blastPower
+    );
+  });
+}
+
+function updateSpellProjectiles(dt: number) {
+  for (let i = spellProjectiles.length - 1; i >= 0; i--) {
+    const projectile = spellProjectiles[i];
+    projectile.life -= dt;
+    projectile.group.position.copy(projectile.body.position as unknown as THREE.Vector3);
+
+    const velocity = projectile.body.velocity;
+    if (velocity.length() > 0.01) {
+      const dir = new THREE.Vector3(velocity.x, velocity.y, velocity.z).normalize();
+      projectile.group.quaternion.setFromUnitVectors(BEAM_UP_AXIS, dir);
+    }
+
+    if (projectile.exploded || projectile.life <= 0) {
+      scene.remove(projectile.group);
+      world.removeBody(projectile.body);
+      spellProjectiles.splice(i, 1);
+    }
+  }
+}
+
+// ------------------------------------------------------------
+// 地面の予兆魔法陣（着弾前に展開が広がるだけの演出用。フェードはしない）
+// ------------------------------------------------------------
+function spawnGroundTelegraphCircle(target: THREE.Vector3, targetScale: number, durationMs: number) {
+  const material = new THREE.MeshBasicMaterial({
+    map: magicCircleTexture,
+    transparent: true,
+    opacity: 0.8,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(magicCircleGeo, material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(target.x, 0.06, target.z);
+  mesh.scale.setScalar(0.05);
+  scene.add(mesh);
+
+  const state = { scale: 0.05 };
+  new TWEEN.Tween(state)
+    .to({ scale: targetScale }, durationMs)
+    .easing(TWEEN.Easing.Quadratic.Out)
+    .onUpdate(() => mesh.scale.setScalar(state.scale))
+    .onComplete(() => {
+      scene.remove(mesh);
+      material.dispose();
+    })
+    .start();
+}
+
+// ------------------------------------------------------------
+// 魔法1：直線ビーム（杖から狙った方向へ発射）
+// ------------------------------------------------------------
+function castBeamSpell() {
   playCastChargeEffect();
 
   // 詠唱モーション分（魔法陣の展開）を待ってから発射する
@@ -513,54 +608,70 @@ function castSpell() {
     const powerRatio = THREE.MathUtils.clamp(params.blastPower / 150, 0, 1);
     const beamScale = THREE.MathUtils.lerp(0.7, 2.2, powerRatio);
 
-    const group = createBeamMesh();
-    group.position.copy(muzzle);
-    group.quaternion.setFromUnitVectors(BEAM_UP_AXIS, dir);
-    group.scale.set(beamScale, 1 + (beamScale - 1) * 0.6, beamScale);
-    scene.add(group);
-
-    const body = new CANNON.Body({ mass: 4, material: blockMaterial });
-    body.addShape(new CANNON.Sphere(0.4 * beamScale));
-    body.position.set(muzzle.x, muzzle.y, muzzle.z);
-    body.velocity.set(
-      dir.x * params.launchPower,
-      dir.y * params.launchPower,
-      dir.z * params.launchPower
+    spawnProjectile(
+      muzzle,
+      dir.clone().multiplyScalar(params.launchPower),
+      beamScale,
+      params.radius,
+      params.blastPower
     );
-    world.addBody(body);
-
-    const beam: SpellBeam = { group, body, exploded: false, life: 6 };
-    spellBeams.push(beam);
-
-    body.addEventListener('collide', () => {
-      if (beam.exploded) return;
-      beam.exploded = true;
-      detonateAt(
-        new THREE.Vector3(body.position.x, body.position.y, body.position.z),
-        params.radius,
-        params.blastPower
-      );
-    });
   }, 220);
 }
 
-function updateSpellBeams(dt: number) {
-  for (let i = spellBeams.length - 1; i >= 0; i--) {
-    const beam = spellBeams[i];
-    beam.life -= dt;
-    beam.group.position.copy(beam.body.position as unknown as THREE.Vector3);
+// ------------------------------------------------------------
+// 魔法2：落下の柱（建造物の真下に魔法陣が広がり、上から太い柱が落ちる）
+// ------------------------------------------------------------
+const FALL_HEIGHT = 40;
+const FALL_SPEED = 26;
 
-    const velocity = beam.body.velocity;
-    if (velocity.length() > 0.01) {
-      const dir = new THREE.Vector3(velocity.x, velocity.y, velocity.z).normalize();
-      beam.group.quaternion.setFromUnitVectors(BEAM_UP_AXIS, dir);
-    }
+function castPillarSpell() {
+  playCastChargeEffect();
 
-    if (beam.exploded || beam.life <= 0) {
-      scene.remove(beam.group);
-      world.removeBody(beam.body);
-      spellBeams.splice(i, 1);
-    }
+  const target = new THREE.Vector3(0, 0, 0);
+  const telegraphScale = Math.max(params.radius * 0.18, 1);
+  spawnGroundTelegraphCircle(target, telegraphScale, 650);
+
+  window.setTimeout(() => {
+    const origin = new THREE.Vector3(target.x, FALL_HEIGHT, target.z);
+    const velocity = new THREE.Vector3(0, -FALL_SPEED, 0);
+    // 柱は通常のビームより一回り太く・威力も上乗せする
+    spawnProjectile(origin, velocity, 2.6, params.radius * 1.3, params.blastPower * 1.4);
+  }, 650);
+}
+
+// ------------------------------------------------------------
+// 魔法3：魔法の雨（建造物周辺に複数の弾が降り注ぐ）
+// ------------------------------------------------------------
+function castRainSpell() {
+  playCastChargeEffect();
+
+  const dropCount = 7;
+  for (let i = 0; i < dropCount; i++) {
+    const startDelay = i * 160;
+    window.setTimeout(() => {
+      const targetX = (Math.random() * 2 - 1) * (HALF + 2);
+      const targetZ = (Math.random() * 2 - 1) * (HALF + 2);
+      const target = new THREE.Vector3(targetX, 0, targetZ);
+
+      spawnGroundTelegraphCircle(target, Math.max(params.radius * 0.08, 0.5), 260);
+
+      window.setTimeout(() => {
+        const origin = new THREE.Vector3(targetX, FALL_HEIGHT * 0.7, targetZ);
+        const velocity = new THREE.Vector3(0, -FALL_SPEED * 1.2, 0);
+        // 1発ずつは通常のビームより小さく・弱くして、複数回の着弾で建物を崩す
+        spawnProjectile(origin, velocity, 0.8, params.radius * 0.5, params.blastPower * 0.4);
+      }, 260);
+    }, startDelay);
+  }
+}
+
+function fireCurrentSpell() {
+  if (params.spellType === 'pillar') {
+    castPillarSpell();
+  } else if (params.spellType === 'rain') {
+    castRainSpell();
+  } else {
+    castBeamSpell();
   }
 }
 
@@ -708,7 +819,7 @@ function animate() {
   }
 
   castCircleMesh.rotation.z += dt * 1.2;
-  updateSpellBeams(dt);
+  updateSpellProjectiles(dt);
   updateExplosionParticles(dt);
   updateMagicCircles(dt);
   updateImpactFlashes(dt);
