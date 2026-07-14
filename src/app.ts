@@ -242,6 +242,64 @@ function updateExplosionParticles(dt: number) {
 }
 
 // ------------------------------------------------------------
+// 魔法陣テクスチャ（Canvasで幾何学模様を描いて生成）
+// ------------------------------------------------------------
+function createMagicCircleTexture(): THREE.CanvasTexture {
+  const size = 256;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d')!;
+  const cx = size / 2;
+  const cy = size / 2;
+
+  ctx.strokeStyle = 'rgba(200,140,255,0.9)';
+  ctx.fillStyle = 'rgba(220,170,255,0.9)';
+  ctx.lineWidth = 2;
+
+  ctx.beginPath();
+  ctx.arc(cx, cy, size * 0.48, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(cx, cy, size * 0.34, 0, Math.PI * 2);
+  ctx.stroke();
+
+  const spikes = 12;
+  for (let i = 0; i < spikes; i++) {
+    const a = (i / spikes) * Math.PI * 2;
+    const x1 = cx + Math.cos(a) * size * 0.34;
+    const y1 = cy + Math.sin(a) * size * 0.34;
+    const x2 = cx + Math.cos(a) * size * 0.48;
+    const y2 = cy + Math.sin(a) * size * 0.48;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(x2, y2, 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  const points = 6;
+  ctx.beginPath();
+  for (let i = 0; i <= points; i++) {
+    const a = (i / points) * Math.PI * 2 - Math.PI / 2;
+    const x = cx + Math.cos(a) * size * 0.3;
+    const y = cy + Math.sin(a) * size * 0.3;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+
+  const texture = new THREE.CanvasTexture(canvas);
+  return texture;
+}
+
+const magicCircleTexture = createMagicCircleTexture();
+const magicCircleGeo = new THREE.PlaneGeometry(2, 2);
+
+// ------------------------------------------------------------
 // 魔法使い（ローブ＋杖の汎用キャラクター。遠距離から破壊魔法を放つ）
 // ※特定作品のキャラクターは模倣せず、汎用的な魔法使い像として実装
 // ------------------------------------------------------------
@@ -300,6 +358,21 @@ const staffOrbMesh = new THREE.Mesh(
 );
 staffOrbMesh.position.z = STAFF_LENGTH;
 staffPivot.add(staffOrbMesh);
+
+const castCircleMesh = new THREE.Mesh(
+  magicCircleGeo,
+  new THREE.MeshBasicMaterial({
+    map: magicCircleTexture,
+    transparent: true,
+    opacity: 0.85,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  })
+);
+castCircleMesh.scale.setScalar(0.5);
+castCircleMesh.position.z = STAFF_LENGTH + 0.3;
+staffPivot.add(castCircleMesh);
 
 // 着弾予測ライン（狙いの可視化）
 const aimArrow = new THREE.ArrowHelper(
@@ -425,6 +498,59 @@ function updateSpellOrbs(dt: number) {
 }
 
 // ------------------------------------------------------------
+// 着弾魔法陣（地面に展開し、広がりながら消える）
+// ------------------------------------------------------------
+interface MagicCircleEffect {
+  mesh: THREE.Mesh;
+  life: number;
+  maxLife: number;
+  baseScale: number;
+}
+
+const activeMagicCircles: MagicCircleEffect[] = [];
+
+function spawnImpactMagicCircle(center: THREE.Vector3, radius: number) {
+  const material = new THREE.MeshBasicMaterial({
+    map: magicCircleTexture,
+    transparent: true,
+    opacity: 0.9,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const mesh = new THREE.Mesh(magicCircleGeo, material);
+  mesh.rotation.x = -Math.PI / 2;
+  mesh.position.set(center.x, 0.05, center.z);
+
+  const baseScale = Math.max(radius * 0.12, 0.6);
+  mesh.scale.setScalar(baseScale);
+  scene.add(mesh);
+
+  activeMagicCircles.push({ mesh, life: 1.1, maxLife: 1.1, baseScale });
+}
+
+function updateMagicCircles(dt: number) {
+  for (let i = activeMagicCircles.length - 1; i >= 0; i--) {
+    const effect = activeMagicCircles[i];
+    effect.life -= dt;
+
+    const t = 1 - effect.life / effect.maxLife;
+    const scale = effect.baseScale * (1 + t * 3);
+    effect.mesh.scale.setScalar(scale);
+    effect.mesh.rotation.z += dt * 1.5;
+
+    const mat = effect.mesh.material as THREE.MeshBasicMaterial;
+    mat.opacity = Math.max(effect.life / effect.maxLife, 0) * 0.9;
+
+    if (effect.life <= 0) {
+      scene.remove(effect.mesh);
+      mat.dispose();
+      activeMagicCircles.splice(i, 1);
+    }
+  }
+}
+
+// ------------------------------------------------------------
 // 爆発処理：範囲内の剛体に距離減衰つきの力積を加える
 // ------------------------------------------------------------
 function detonateAt(center: THREE.Vector3, radius: number, power: number) {
@@ -448,6 +574,7 @@ function detonateAt(center: THREE.Vector3, radius: number, power: number) {
   }
 
   spawnExplosionParticles(center);
+  spawnImpactMagicCircle(center, radius);
 
   // カメラを着弾地点へ寄せる演出（Tween.js）
   const from = { t: 0 };
@@ -479,8 +606,10 @@ function animate() {
     b.mesh.quaternion.copy(b.body.quaternion as unknown as THREE.Quaternion);
   }
 
+  castCircleMesh.rotation.z += dt * 1.2;
   updateSpellOrbs(dt);
   updateExplosionParticles(dt);
+  updateMagicCircles(dt);
   TWEEN.update();
   controls.update();
   renderer.render(scene, camera);
