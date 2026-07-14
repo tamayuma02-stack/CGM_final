@@ -176,8 +176,14 @@ interface ExplosionParticles {
 
 const activeExplosions: ExplosionParticles[] = [];
 
-function spawnExplosionParticles(center: THREE.Vector3) {
-  const count = 200;
+function spawnExplosionParticles(center: THREE.Vector3, power: number) {
+  // 威力が大きいほど、粒子数・速度・粒の大きさを増やして派手にする
+  const powerRatio = THREE.MathUtils.clamp(power / 150, 0, 1);
+  const count = Math.round(THREE.MathUtils.lerp(80, 420, powerRatio));
+  const speedMin = THREE.MathUtils.lerp(3, 8, powerRatio);
+  const speedRange = THREE.MathUtils.lerp(4, 14, powerRatio);
+  const particleSize = THREE.MathUtils.lerp(0.25, 0.55, powerRatio);
+
   const positions = new Float32Array(count * 3);
   const velocities = new Float32Array(count * 3);
 
@@ -191,7 +197,7 @@ function spawnExplosionParticles(center: THREE.Vector3) {
       Math.random() * 2 - 1,
       Math.random() * 2 - 1
     ).normalize();
-    const speed = 4 + Math.random() * 6;
+    const speed = speedMin + Math.random() * speedRange;
     velocities[i * 3] = dir.x * speed;
     velocities[i * 3 + 1] = dir.y * speed + 2;
     velocities[i * 3 + 2] = dir.z * speed;
@@ -202,7 +208,7 @@ function spawnExplosionParticles(center: THREE.Vector3) {
 
   const material = new THREE.PointsMaterial({
     color: 0x9933ff,
-    size: 0.35,
+    size: particleSize,
     transparent: true,
     opacity: 1,
     depthWrite: false,
@@ -561,11 +567,22 @@ interface MagicCircleEffect {
   life: number;
   maxLife: number;
   baseScale: number;
+  growFactor: number;
+}
+
+interface ImpactFlash {
+  light: THREE.PointLight;
+  life: number;
+  maxLife: number;
+  baseIntensity: number;
 }
 
 const activeMagicCircles: MagicCircleEffect[] = [];
+const activeImpactFlashes: ImpactFlash[] = [];
 
-function spawnImpactMagicCircle(center: THREE.Vector3, radius: number) {
+function spawnImpactMagicCircle(center: THREE.Vector3, radius: number, power: number) {
+  const powerRatio = THREE.MathUtils.clamp(power / 150, 0, 1);
+
   const material = new THREE.MeshBasicMaterial({
     map: magicCircleTexture,
     transparent: true,
@@ -578,11 +595,20 @@ function spawnImpactMagicCircle(center: THREE.Vector3, radius: number) {
   mesh.rotation.x = -Math.PI / 2;
   mesh.position.set(center.x, 0.05, center.z);
 
-  const baseScale = Math.max(radius * 0.12, 0.6);
+  // 威力・範囲が大きいほど魔法陣も大きく、拡がる速度も速くする
+  const baseScale = Math.max(radius * 0.12, 0.6) * (1 + powerRatio * 0.6);
   mesh.scale.setScalar(baseScale);
   scene.add(mesh);
 
-  activeMagicCircles.push({ mesh, life: 1.1, maxLife: 1.1, baseScale });
+  const growFactor = THREE.MathUtils.lerp(2, 4.5, powerRatio);
+  activeMagicCircles.push({ mesh, life: 1.1, maxLife: 1.1, baseScale, growFactor });
+
+  // 威力が大きいほど眩しく光る着弾フラッシュ
+  const baseIntensity = THREE.MathUtils.lerp(3, 20, powerRatio);
+  const flash = new THREE.PointLight(0xa855ff, baseIntensity, radius * 1.5 + 5);
+  flash.position.set(center.x, center.y, center.z);
+  scene.add(flash);
+  activeImpactFlashes.push({ light: flash, life: 0.35, maxLife: 0.35, baseIntensity });
 }
 
 function updateMagicCircles(dt: number) {
@@ -591,7 +617,7 @@ function updateMagicCircles(dt: number) {
     effect.life -= dt;
 
     const t = 1 - effect.life / effect.maxLife;
-    const scale = effect.baseScale * (1 + t * 3);
+    const scale = effect.baseScale * (1 + t * effect.growFactor);
     effect.mesh.scale.setScalar(scale);
     effect.mesh.rotation.z += dt * 1.5;
 
@@ -602,6 +628,20 @@ function updateMagicCircles(dt: number) {
       scene.remove(effect.mesh);
       mat.dispose();
       activeMagicCircles.splice(i, 1);
+    }
+  }
+}
+
+function updateImpactFlashes(dt: number) {
+  for (let i = activeImpactFlashes.length - 1; i >= 0; i--) {
+    const flash = activeImpactFlashes[i];
+    flash.life -= dt;
+
+    const t = Math.max(flash.life / flash.maxLife, 0);
+    flash.light.intensity = flash.baseIntensity * t * t;
+    if (flash.life <= 0) {
+      scene.remove(flash.light);
+      activeImpactFlashes.splice(i, 1);
     }
   }
 }
@@ -629,8 +669,8 @@ function detonateAt(center: THREE.Vector3, radius: number, power: number) {
     b.body.applyImpulse(impulse, b.body.position);
   }
 
-  spawnExplosionParticles(center);
-  spawnImpactMagicCircle(center, radius);
+  spawnExplosionParticles(center, power);
+  spawnImpactMagicCircle(center, radius, power);
 
   // カメラを着弾地点へ寄せる演出（Tween.js）
   const from = { t: 0 };
@@ -666,6 +706,7 @@ function animate() {
   updateSpellBeams(dt);
   updateExplosionParticles(dt);
   updateMagicCircles(dt);
+  updateImpactFlashes(dt);
   TWEEN.update();
   controls.update();
   renderer.render(scene, camera);
