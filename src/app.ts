@@ -532,6 +532,49 @@ const aimArrow = new THREE.ArrowHelper(
 scene.add(aimArrow);
 
 // ------------------------------------------------------------
+// マウスで狙う：カーソルが指している地面の座標へ左右(yaw)を自動で向ける
+// ------------------------------------------------------------
+const raycaster = new THREE.Raycaster();
+const mouseNDC = new THREE.Vector2();
+const mouseGroundTarget = new THREE.Vector3(0, 0, 0);
+
+function updateAimFromMouse(clientX: number, clientY: number) {
+  mouseNDC.x = (clientX / window.innerWidth) * 2 - 1;
+  mouseNDC.y = -(clientY / window.innerHeight) * 2 + 1;
+
+  raycaster.setFromCamera(mouseNDC, camera);
+  const hit = raycaster.intersectObject(groundMesh)[0];
+  if (!hit) return;
+
+  mouseGroundTarget.copy(hit.point);
+
+  const dx = hit.point.x - casterGroup.position.x;
+  const dz = hit.point.z - casterGroup.position.z;
+  if (Math.hypot(dx, dz) < 0.5) return; // 真下付近は向きが不定になるので無視
+
+  params.yaw = THREE.MathUtils.radToDeg(Math.atan2(dx, dz));
+  updateAim();
+}
+
+renderer.domElement.addEventListener('pointermove', (e) => {
+  updateAimFromMouse(e.clientX, e.clientY);
+});
+
+// クリック（ドラッグでカメラ回転した場合は除く）で魔法を発射
+let pointerDownX = 0;
+let pointerDownY = 0;
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  pointerDownX = e.clientX;
+  pointerDownY = e.clientY;
+});
+renderer.domElement.addEventListener('pointerup', (e) => {
+  const movedDist = Math.hypot(e.clientX - pointerDownX, e.clientY - pointerDownY);
+  if (movedDist < 5) {
+    fireCurrentSpell();
+  }
+});
+
+// ------------------------------------------------------------
 // GUI（照準・威力・爆風の指定）
 // ------------------------------------------------------------
 const params = {
@@ -545,13 +588,8 @@ const params = {
   reset: () => buildStructure(),
 };
 
-// キャラクターの体の向き（カメラの見ている方向）＋GUIのyawオフセットを合算したワールド空間の左右角度
-function getTotalYaw(): number {
-  return casterGroup.rotation.y + THREE.MathUtils.degToRad(params.yaw);
-}
-
 function getAimDirection(): THREE.Vector3 {
-  const yawRad = getTotalYaw();
+  const yawRad = THREE.MathUtils.degToRad(params.yaw);
   const angleRad = THREE.MathUtils.degToRad(params.angle);
   return new THREE.Vector3(
     Math.sin(yawRad) * Math.cos(angleRad),
@@ -560,22 +598,9 @@ function getAimDirection(): THREE.Vector3 {
   );
 }
 
-// 落下の柱・魔法の雨用：左右の向きだけで狙った先の地面座標を求める
-const AIM_TARGET_DISTANCE = 22;
-
+// 落下の柱・魔法の雨用：マウスが指している地面の座標をそのまま狙い先にする
 function getGroundTarget(): THREE.Vector3 {
-  const yawRad = getTotalYaw();
-  return new THREE.Vector3(
-    casterGroup.position.x + Math.sin(yawRad) * AIM_TARGET_DISTANCE,
-    0,
-    casterGroup.position.z + Math.cos(yawRad) * AIM_TARGET_DISTANCE
-  );
-}
-
-function updateAimArrow() {
-  const dir = getAimDirection();
-  aimArrow.setDirection(dir);
-  aimArrow.setLength(6 + params.launchPower * 0.3, 0.8, 0.5);
+  return mouseGroundTarget.clone();
 }
 
 function updateAim() {
@@ -583,7 +608,10 @@ function updateAim() {
   const angleRad = THREE.MathUtils.degToRad(params.angle);
   staffPivot.rotation.y = yawRad;
   staffPivot.rotation.x = -angleRad;
-  updateAimArrow();
+
+  const dir = getAimDirection();
+  aimArrow.setDirection(dir);
+  aimArrow.setLength(6 + params.launchPower * 0.3, 0.8, 0.5);
 }
 updateAim();
 
@@ -592,16 +620,15 @@ gui
   .add(params, 'spellType', { 直線ビーム: 'beam', 落下の柱: 'pillar', 魔法の雨: 'rain' })
   .name('魔法の種類');
 
-const aimFolder = gui.addFolder('照準（左右は全種類共通）');
+const aimFolder = gui.addFolder('照準（左右はマウスで自動）');
 aimFolder.add(params, 'angle', 10, 75, 1).name('仰角（直線ビーム用）').onChange(updateAim);
-aimFolder.add(params, 'yaw', -70, 70, 1).name('左右').onChange(updateAim);
 aimFolder.add(params, 'launchPower', 15, 45, 1).name('威力（速度・直線ビーム用）').onChange(updateAim);
 
 const blastFolder = gui.addFolder('着弾時の爆風');
 blastFolder.add(params, 'radius', 2, 25, 0.5).name('範囲半径');
 blastFolder.add(params, 'blastPower', 10, 150, 1).name('威力');
 
-gui.add(params, 'fire').name('魔法を放つ！');
+gui.add(params, 'fire').name('魔法を放つ！（クリックでも発射）');
 gui.add(params, 'reset').name('建造物をリセット');
 
 // ------------------------------------------------------------
@@ -994,15 +1021,6 @@ function animate() {
 
   updateCasterMovement(dt);
   aimArrow.position.copy(casterGroup.position);
-
-  // キャラクターの正面を常にカメラの見ている方向（＝視点の後ろ側）に合わせる
-  const viewDir = new THREE.Vector3()
-    .subVectors(casterGroup.position, camera.position)
-    .setY(0);
-  if (viewDir.lengthSq() > 0.0001) {
-    casterGroup.rotation.y = Math.atan2(viewDir.x, viewDir.z);
-  }
-  updateAimArrow();
 
   // 三人称カメラ：注視点を常に魔法使いに固定し、マウスドラッグでの周回・ズームはOrbitControlsに任せる
   controls.target.set(
