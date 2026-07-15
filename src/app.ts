@@ -90,11 +90,13 @@ scene.add(groundMesh);
 // 建造物（遺跡風の柱＋床スラブ構造）の生成
 // ------------------------------------------------------------
 interface Block {
-  mesh: THREE.Mesh;
+  mesh: THREE.Object3D;
   body: CANNON.Body;
 }
 
 const blocks: Block[] = [];
+// 木（自然物）用の物理ボディ。建造物のリセットでは消さない別配列にしておく
+const natureBodies: Block[] = [];
 
 const pillarGeo = new THREE.BoxGeometry(1, 2, 1);
 const stoneMat = new THREE.MeshStandardMaterial({ color: 0xcfc3a5, roughness: 0.9 });
@@ -180,7 +182,7 @@ function buildStructure() {
 buildStructure();
 
 // ------------------------------------------------------------
-// 自然物（木・岩）：装飾のみで物理判定は持たない
+// 自然物（木・岩）：木は爆風で吹き飛ぶ物理ボディ付き、岩は装飾のみ
 // ------------------------------------------------------------
 const trunkGeo = new THREE.CylinderGeometry(0.15, 0.22, 1.6, 6);
 const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5b3a24, roughness: 0.9 });
@@ -211,6 +213,21 @@ function createTree(x: number, z: number, scale: number) {
   group.position.set(x, 0, z);
   group.scale.setScalar(scale);
   scene.add(group);
+
+  // 魔法の爆風が当たると根元から吹き飛ぶよう、円柱形の剛体を持たせる
+  // （offsetで地面接地点=グループ原点からの位置ずれを吸収し、mesh.positionへそのままコピーできるようにする）
+  const treeRadius = 0.55 * scale;
+  const treeHeight = 3.2 * scale;
+  const body = new CANNON.Body({ mass: 5 * scale, material: blockMaterial });
+  body.addShape(
+    new CANNON.Cylinder(treeRadius, treeRadius, treeHeight, 8),
+    new CANNON.Vec3(0, treeHeight / 2, 0)
+  );
+  body.position.set(x, 0, z);
+  body.linearDamping = 0.2;
+  body.angularDamping = 0.4;
+  world.addBody(body);
+  natureBodies.push({ mesh: group, body });
 }
 
 function createRock(x: number, z: number, scale: number) {
@@ -1029,6 +1046,21 @@ function detonateAt(center: THREE.Vector3, radius: number, power: number) {
     b.body.applyImpulse(impulse, b.body.position);
   }
 
+  for (const t of natureBodies) {
+    const diff = new CANNON.Vec3();
+    t.body.position.vsub(cannonCenter, diff);
+    const dist = diff.length();
+    if (dist > radius) continue;
+
+    const falloff = 1 - dist / radius;
+    const impulseMag = power * falloff;
+    const dir = diff.unit();
+    const impulse = dir.scale(impulseMag);
+
+    t.body.wakeUp();
+    t.body.applyImpulse(impulse, t.body.position);
+  }
+
   spawnExplosionParticles(center, power);
   spawnImpactMagicCircle(center, radius, power);
 }
@@ -1048,6 +1080,10 @@ function animate() {
   for (const b of blocks) {
     b.mesh.position.copy(b.body.position as unknown as THREE.Vector3);
     b.mesh.quaternion.copy(b.body.quaternion as unknown as THREE.Quaternion);
+  }
+  for (const t of natureBodies) {
+    t.mesh.position.copy(t.body.position as unknown as THREE.Vector3);
+    t.mesh.quaternion.copy(t.body.quaternion as unknown as THREE.Quaternion);
   }
 
   updateCasterMovement(dt);
