@@ -95,8 +95,9 @@ interface Block {
 }
 
 const blocks: Block[] = [];
-// 木（自然物）用の物理ボディ。建造物のリセットでは消さない別配列にしておく
+// 木（自然物）用の物理ボディ。建造物のリセットでは作り直さず、初期状態に位置・回転だけ戻す
 const natureBodies: Block[] = [];
+const natureInitialStates: { position: CANNON.Vec3; quaternion: CANNON.Quaternion }[] = [];
 
 const pillarGeo = new THREE.BoxGeometry(1, 2, 1);
 const stoneMat = new THREE.MeshStandardMaterial({ color: 0xcfc3a5, roughness: 0.9 });
@@ -228,6 +229,23 @@ function createTree(x: number, z: number, scale: number) {
   body.angularDamping = 0.4;
   world.addBody(body);
   natureBodies.push({ mesh: group, body });
+  natureInitialStates.push({
+    position: body.position.clone(),
+    quaternion: body.quaternion.clone(),
+  });
+}
+
+// 吹き飛んだ木を初期位置・向きに戻す（建造物リセットとセットで呼ぶ）
+function resetNature() {
+  for (let i = 0; i < natureBodies.length; i++) {
+    const { body } = natureBodies[i];
+    const init = natureInitialStates[i];
+    body.position.copy(init.position);
+    body.quaternion.copy(init.quaternion);
+    body.velocity.set(0, 0, 0);
+    body.angularVelocity.set(0, 0, 0);
+    body.wakeUp();
+  }
 }
 
 function createRock(x: number, z: number, scale: number) {
@@ -605,7 +623,10 @@ const params = {
   radius: 12, // 爆風半径
   blastPower: 60, // 爆風の威力
   fire: () => fireCurrentSpell(),
-  reset: () => buildStructure(),
+  reset: () => {
+    buildStructure();
+    resetNature();
+  },
 };
 
 function getAimDirection(): THREE.Vector3 {
@@ -644,7 +665,7 @@ blastFolder.add(params, 'radius', 2, 25, 0.5).name('範囲半径');
 blastFolder.add(params, 'blastPower', 10, 150, 1).name('威力');
 
 gui.add(params, 'fire').name('魔法を放つ！（クリックでも発射）');
-gui.add(params, 'reset').name('建造物をリセット');
+gui.add(params, 'reset').name('建造物・木をリセット');
 
 // ------------------------------------------------------------
 // 詠唱エフェクト：発射の瞬間、魔法陣が拡大して発光する
