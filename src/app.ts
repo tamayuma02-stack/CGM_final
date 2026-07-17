@@ -465,25 +465,31 @@ const MOVE_SPEED = 10;
 const MOVE_BOUND = 42;
 
 function updateCasterMovement(dt: number) {
-  let moveX = 0;
-  let moveZ = 0;
-  if (keysPressed.has('w') || keysPressed.has('arrowup')) moveZ += 1;
-  if (keysPressed.has('s') || keysPressed.has('arrowdown')) moveZ -= 1;
-  if (keysPressed.has('a') || keysPressed.has('arrowleft')) moveX -= 1;
-  if (keysPressed.has('d') || keysPressed.has('arrowright')) moveX += 1;
+  const forward = new THREE.Vector3();
+  camera.getWorldDirection(forward);
+  forward.y = 0;
+  forward.normalize();
 
-  if (moveX === 0 && moveZ === 0) return;
+  const right = new THREE.Vector3();
+  right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
 
-  const len = Math.hypot(moveX, moveZ);
-  moveX /= len;
-  moveZ /= len;
+  const moveDir = new THREE.Vector3();
+  if (keysPressed.has('w') || keysPressed.has('arrowup')) moveDir.add(forward);
+  if (keysPressed.has('s') || keysPressed.has('arrowdown')) moveDir.sub(forward);
+  if (keysPressed.has('a') || keysPressed.has('arrowleft')) moveDir.sub(right);
+  if (keysPressed.has('d') || keysPressed.has('arrowright')) moveDir.add(right);
+
+  if (moveDir.lengthSq() === 0) return;
+
+  moveDir.normalize();
+
   casterGroup.position.x = THREE.MathUtils.clamp(
-    casterGroup.position.x + moveX * MOVE_SPEED * dt,
+    casterGroup.position.x + moveDir.x * MOVE_SPEED * dt,
     -MOVE_BOUND,
     MOVE_BOUND
   );
   casterGroup.position.z = THREE.MathUtils.clamp(
-    casterGroup.position.z + moveZ * MOVE_SPEED * dt,
+    casterGroup.position.z + moveDir.z * MOVE_SPEED * dt,
     -MOVE_BOUND,
     MOVE_BOUND
   );
